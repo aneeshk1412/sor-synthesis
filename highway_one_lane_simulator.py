@@ -1,4 +1,5 @@
 import json
+import os
 
 import numpy as np
 import gymnasium as gym
@@ -33,8 +34,8 @@ class MyVehicle(IDMVehicle):
     ):
         speed = random.choice(
             _other_speeds
-        )  ## Change velocity of car in front using this variable
-        target_speed = speed  ## TODO: Not working yet for above 30
+        )  # Change velocity of car in front using this variable
+        target_speed = speed  # TODO: Not working yet for above 30
         super().__init__(
             road, position, heading, speed, target_lane_index, target_speed, route
         )
@@ -90,6 +91,8 @@ def compute_state(obs):
     return {
         **dimensionless_template("x_diff", float(obs[1][0] - obs[0][0])),
         **dimensionless_template("v_diff", float(obs[1][1] - obs[0][1])),
+        **dimensionless_template("v_self", float(obs[0][1])),
+        **dimensionless_template("v_front", float(obs[1][1])),
     }
 
 
@@ -122,25 +125,65 @@ def print_debug(reward, done, truncated, state, info):
 
 
 def save_trace_to_json(trace, filename="demo.json"):
-    trace_json = json.dumps([s.sample for s in trace])
+    trace_json = json.dumps([s.state for s in trace])
     with open(filename, "w") as f:
         f.write(trace_json)
 
+def plot_series(policy, trace):
+    directory = 'plots/' + str(policy.__name__) +'/'
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
-OTHER_SPEED_RANGE_LOW = 10  # [m/s]
-OTHER_SPEED_RANGE_HIGH = 11  # [m/s]
+    # plot x diff
+    plt.clf()
+    x_diff_series = [x.state['x_diff']['value'] for x in trace]
+    # Create x-axis values ranging from 0 to the length of the data
+    x = range(len(x_diff_series))
+    # Plot the sorted data as a line chart
+    plt.plot(x, x_diff_series)
+    # Add labels and title to the chart
+    plt.xlabel('Time (s)')
+    plt.ylabel("Distance (m)")
+    plt.title('Distance Between Cars vs. Time')
+    plt.grid(True)
+    # Save the chart as an image file
+    plt.savefig(directory+'distance.png')
+    
+    # plot velocities
+    plt.clf()
+    v_self_series = [x.state['v_self']['value'] for x in trace]
+    v_front_series = [x.state['v_front']['value'] for x in trace]
+    # Create x-axis values ranging from 0 to the length of the data
+    x = range(len(v_self_series))
+    # Plot the sorted data as a line chart
+    plt.plot(x, v_self_series)
+    plt.plot(x, v_front_series)
+    # Add labels and title to the chart
+    plt.xlabel('Time (s)')
+    plt.ylabel("Velocity (m/s)")
+    plt.title('Velocities of the Cars vs. Time')
+    plt.grid(True)
+    # Save the chart as an image file
+    plt.savefig(directory+'velocity.png')
+
+
+
+OTHER_SPEED_RANGE_LOW = 30  # [m/s]
+OTHER_SPEED_RANGE_HIGH = 31  # [m/s]
 OTHER_SPEED_INTERVAL = 1  # [m/s]
 
-EGO_SPEED_RANGE_LOW = 10  # [m/s]
-EGO_SPEED_RANGE_HIGH = 30  # [m/s]
+EGO_SPEED_RANGE_LOW = 20  # [m/s]
+EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 50  # [s]
+DURATION = 40  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
-MIN_DIST = 10  # [m] Minimum distance between ego and other vehicle in initial state
-MAX_DIST = 70  # [m] Maximum distance between ego and other vehicle in initial state
+# [m] Minimum distance between ego and other vehicle in initial state
+MIN_DIST = 10
+# [m] Maximum distance between ego and other vehicle in initial state
+MAX_DIST = 11
 D_CRASH = 5  # [m] Distance at which crash occurs in simulation
 
 _other_speed_num_points = (
@@ -159,13 +202,14 @@ _ego_speeds = np.linspace(
 
 _dist_interval = 1
 _dist_num_points = int(MAX_DIST - MIN_DIST) // _dist_interval + 1
-## space between ego and other is vehicle_distance = 30 / vehicle_density
-vehicle_densities_choices = np.linspace(30 / MAX_DIST, 30 / MIN_DIST, _dist_num_points)
+# space between ego and other is vehicle_distance = 30 / vehicle_density
+vehicle_densities_choices = np.linspace(
+    30 / MAX_DIST, 30 / MIN_DIST, _dist_num_points)
 
 config = {
     "lanes_count": 1,
     "duration": DURATION,
-    "policy_frequency": 20,
+    "policy_frequency": 8,
     "simulation_frequency": 40,
     "screen_width": 1500,
     "observation": {
@@ -177,7 +221,7 @@ config = {
     },
     "action": {
         "type": "DiscreteMetaAction",
-        "target_speeds": _ego_speeds,  ## Speed range of ego vehicle
+        "target_speeds": _ego_speeds,  # Speed range of ego vehicle
     },
     "vehicles_count": 1,
     "other_vehicles_type": "highway_one_lane_simulator.MyVehicle",
@@ -253,10 +297,42 @@ def policy_ground_truth(state):
     v_diff = state.get("v_diff")
 
     pre = state.get("start")
-    fast_to_slow = ((v_diff**2) / 2 - x_diff > -DESIRED_DISTANCE) and v_diff < 0
+    fast_to_slow = ((v_diff**2) / 2 - x_diff > -
+                    DESIRED_DISTANCE) and v_diff < 0
     fast_to_fast = ((v_diff**2) / 2 + x_diff > DESIRED_DISTANCE) and v_diff > 0
     slow_to_fast = ((v_diff**2) / 2 + x_diff > DESIRED_DISTANCE) and v_diff > 0
-    slow_to_slow = ((v_diff**2) / 2 - x_diff > -DESIRED_DISTANCE) and v_diff < 0
+    slow_to_slow = ((v_diff**2) / 2 - x_diff > -
+                    DESIRED_DISTANCE) and v_diff < 0
+
+    if pre == "SLOWER":
+        if slow_to_fast:
+            post = "FASTER"
+        elif slow_to_slow:
+            post = "SLOWER"
+        else:
+            post = "SLOWER"
+    elif pre == "FASTER":
+        if fast_to_slow:
+            post = "SLOWER"
+        elif fast_to_fast:
+            post = "FASTER"
+        else:
+            post = "FASTER"
+    return post
+
+
+def policy_ldips(state):
+    """Ground truth policy."""
+    x_diff = state.get("x_diff")
+    v_diff = state.get("v_diff")
+    v_self = state.get("v_self")
+    v_front = state.get("v_front")
+
+    pre = state.get("start")
+    slow_to_fast = (((x_diff - v_front) - (x_diff - (v_diff) ** 2)) > 29.988765716552734)
+    fast_to_fast = ((v_front - (v_self) ** 2) > -888.6221923828125)
+    slow_to_slow = (((x_diff - x_diff) - (v_self - (x_diff) ** 2)) > -929.6056518554688)
+    fast_to_slow = (((v_self) ** 2 > 891.6383056640625) and ((x_diff - (x_diff) ** 2) > -871.122314453125))
 
     if pre == "SLOWER":
         if slow_to_fast:
@@ -284,5 +360,11 @@ def spec_1(trace):
 
 
 if __name__ == "__main__":
-    sat, trace = run_simulation(policy_ground_truth, spec_1, show=True)
+    # set the desired policy here
+    POLICY = policy_ldips # the current policy is learned by LDIPS from the demo of the gt. It crashes. 
+    #POLICY = policy_ground_truth
+    
+    sat, trace = run_simulation(POLICY, spec_1, show=True)
+    save_trace_to_json(trace=trace)
+    plot_series(policy=POLICY, trace=trace)
     print(sat, len(trace))
