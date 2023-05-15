@@ -239,7 +239,7 @@ EGO_SPEED_RANGE_LOW = 20  # [m/s]
 EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 40  # [s]
+DURATION = 120  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
@@ -392,12 +392,20 @@ def policy_ldips(state):
     v_self = state.get("v_self")
     v_front = state.get("v_front")
 
-    pre = state.get("start")
-    slow_to_fast = (((x_diff) ** 2 - (v_front) ** 2) > 1799.7431640625)
-    fast_to_fast = (((v_diff) ** 2 - v_self) > -30.121679306030273)
-    slow_to_slow = (((x_diff - x_diff) - (v_diff - (x_diff) ** 2)) > -899.7526245117188)
-    fast_to_slow = ((v_front - (v_front) ** 2) > -870.155029296875)
+    slow_to_fast = ((v_front - (v_self) ** 2) > -862.127197265625)
+    fast_to_fast = (((x_diff) ** 2 - v_self) > 869.876708984375)
+    slow_to_slow = (((v_diff) ** 2 - (x_diff) ** 2) > -899.3023071289062)
+    fast_to_slow = (((v_diff) ** 2 - (x_diff) ** 2) > -900.1201171875)
 
+
+
+    slow_to_fast = x_diff < 49
+    fast_to_fast = x_diff < 49 
+    slow_to_slow = x_diff > 51
+    fast_to_slow = x_diff > 51
+
+
+    pre = state.get("start")
     if pre == "SLOWER":
         if slow_to_fast:
             post = "FASTER"
