@@ -144,15 +144,6 @@ def plot_series(policy, trace):
     # Plot the sorted data as a line chart
     plt.plot(x, x_diff_series)
 
-    #for i in range(len(x_diff_series)):
-    #    if actions[i] == 'SLOWER':
-    #        plt.scatter(x[i], x_diff_series[i], color='red')
-    #    elif actions[i] == 'FASTER':
-    #        plt.scatter(x[i], x_diff_series[i], color='green')
-    #    else:
-    #        plt.scatter(x[i], x_diff_series[i], color='black')  # Default color for unknown actions
-
-
     # Add labels and title to the chart
     plt.xlabel('Time (s)')
     plt.ylabel("Distance (m)")
@@ -161,9 +152,6 @@ def plot_series(policy, trace):
     # Set the minimum values of the x and y axes to 0
     plt.xlim(0, None)
     #plt.ylim(0, None)
-
-    # Plot colored rectangles for actions
-    #plt.axhspan(plt.ylim()[0], 1, facecolor='gray', alpha=0.3)  # Gray background
     
     # Iterate over each action
     for i, action in enumerate(actions):
