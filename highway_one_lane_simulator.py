@@ -400,7 +400,7 @@ def policy_ldips(state):
 
 
     slow_to_fast = x_diff < 49
-    fast_to_fast = x_diff < 49 
+    fast_to_fast = x_diff < 49
     slow_to_slow = x_diff > 51
     fast_to_slow = x_diff > 51
 
@@ -445,20 +445,48 @@ def analyze_trace(trace):
         result[(pre_action, post_action)].append(s)
     return result
 
+COUNT = 20 * config['simulation_frequency']
+DELTA_DISTANCE = 1 # [m]
+
+def find_spec_1_breakpoint(trace):
+    """ Distance always greater than D_CRASH """
+    for i, s in enumerate(trace):
+        if s.get('x_diff') <= D_CRASH:
+            return i-1, False
+    return None, True
+
+def find_spec_2_breakpoint(trace):
+    """ Distance always less than DESIRED_DISTANCE + DELTA_DISTANCE """
+    for i, s in enumerate(trace):
+        if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE:
+            return i-1, False
+    return None, True
+
+def find_spec_3_breakpoint(trace):
+    """ Distance between DESIRED_DISTANCE + DELTA_DISTANCE and DESIRED_DISTANCE - DELTA_DISTANCE after COUNT seconds """
+    for i, s in enumerate(trace):
+        if i < COUNT:
+            continue
+        if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE:
+            return i-1, False
+        if s.get('x_diff') <= DESIRED_DISTANCE - DELTA_DISTANCE:
+            return i-1, False
+    return None, True
+
 
 if __name__ == "__main__":
     # set the desired policy here
-    POLICY = policy_ldips 
+    POLICY = policy_ldips
     #POLICY = policy_ground_truth
 
     sat, trace = run_simulation(POLICY, spec_1, show=True)
     plot_series(policy=POLICY, trace=trace)
     print(f'{sat=}, {len(trace)=}')
-    
+
     # if you want to have a fix and same number of samples for each type of transition
     if SAMPLES_NUMBER_PER_TRANSITION > 0:
         sampled_trace = []
-        samples_map = analyze_trace(trace=trace)    
+        samples_map = analyze_trace(trace=trace)
         for k in samples_map.keys():
             if len(samples_map[k]) >= SAMPLES_NUMBER_PER_TRANSITION:
                 for s in random.sample(samples_map[k], SAMPLES_NUMBER_PER_TRANSITION):
@@ -469,26 +497,66 @@ if __name__ == "__main__":
 
         save_trace_to_json(trace=sampled_trace, filename='sampled_demo.json')
     save_trace_to_json(trace=trace, filename='full_demo.json')
-    
-    # manual repair
+
+    ## automatic repair
     if POLICY == policy_ldips:
-        while(True):
-            print (f'There are {len(trace)} transitions in the trace of the learned policy. Enter the index of the transition to repair:')
-            idx = int(input())
-            print('Here is the chosen transition sample:')
-            sample = trace[idx]
-            print (pretty_str_state(sample, idx)) 
-            print ('continue?')
-            cont = input()
-            if cont in {'y','Y','yes'}:
-                break
-        print ('Enter correct post action:')
-        repaired_post_action = input()
-        assert repaired_post_action in {'SLOWER', 'FASTER'}
-        print ('New repaired sample:')
-        json_sample = sample.state
-        json_sample['output']['value'] = repaired_post_action
-        print (json.dumps(json_sample))
+        i, sat = find_spec_1_breakpoint(trace)
+        if not sat:
+            print("Found broken spec 1:\n")
+            sample = trace[i]
+            if sample.state['output']['value'] == "SLOWER":
+                sample.state['output']['value'] = "FASTER"
+            elif sample.state['output']['value'] == "FASTER":
+                sample.state['output']['value'] = "SLOWER"
+            else:
+                raise Exception("Invalid action")
+            print(json.dumps(sample.state))
+        else:
+            i, sat = find_spec_2_breakpoint(trace)
+            if not sat:
+                print("Found broken spec 2:\n")
+                sample = trace[i]
+                if sample.state['output']['value'] == "SLOWER":
+                    sample.state['output']['value'] = "FASTER"
+                elif sample.state['output']['value'] == "FASTER":
+                    sample.state['output']['value'] = "SLOWER"
+                else:
+                    raise Exception("Invalid action")
+                print(json.dumps(sample.state))
+            else:
+                i, sat = find_spec_3_breakpoint(trace)
+                if not sat:
+                    print("Found broken spec 3:\n")
+                    sample = trace[i]
+                    if sample.state['output']['value'] == "SLOWER":
+                        sample.state['output']['value'] = "FASTER"
+                    elif sample.state['output']['value'] == "FASTER":
+                        sample.state['output']['value'] = "SLOWER"
+                    else:
+                        raise Exception("Invalid action")
+                    print(json.dumps(sample.state))
+                else:
+                    print("No broken specs found")
+
+    ## manual repair
+    # if POLICY == policy_ldips:
+    #     while(True):
+    #         print (f'There are {len(trace)} transitions in the trace of the learned policy. Enter the index of the transition to repair:')
+    #         idx = int(input())
+    #         print('Here is the chosen transition sample:')
+    #         sample = trace[idx]
+    #         print (pretty_str_state(sample, idx))
+    #         print ('continue?')
+    #         cont = input()
+    #         if cont in {'y','Y','yes'}:
+    #             break
+    #     print ('Enter correct post action:')
+    #     repaired_post_action = input()
+    #     assert repaired_post_action in {'SLOWER', 'FASTER'}
+    #     print ('New repaired sample:')
+    #     json_sample = sample.state
+    #     json_sample['output']['value'] = repaired_post_action
+    #     print (json.dumps(json_sample))
 
 
 
