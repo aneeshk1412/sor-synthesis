@@ -129,18 +129,19 @@ def save_trace_to_json(trace, filename="demo.json"):
     with open(filename, "w") as f:
         f.write(trace_json)
 
+
 def plot_series(policy, trace):
-    directory = 'plots/' + str(policy.__name__) +'/'
+    directory = 'plots/' + str(policy.__name__) + '/'
     if not os.path.exists(directory):
         os.makedirs(directory)
 
+    
     # plot x diff
     plt.clf()
     x_diff_series = [x.state['x_diff']['value'] for x in trace]
     # Create x-axis values ranging from 0 to the length of the data
     x = range(len(x_diff_series))
     actions = [x.state['output']['value'] for x in trace]
-    print (actions)
     # Plot the sorted data as a line chart
     plt.plot(x, x_diff_series)
 
@@ -151,12 +152,15 @@ def plot_series(policy, trace):
     plt.grid(True)
     # Set the minimum values of the x and y axes to 0
     plt.xlim(0, None)
-    #plt.ylim(0, None)
-    
+    # plt.ylim(0, None)
+    plt.minorticks_on()
+    plt.grid(True, which='minor', linestyle='--', alpha=0.4)
+
+
     # Iterate over each action
     for i, action in enumerate(actions):
         # Determine the x-coordinate range for the rectangle
-        start = i 
+        start = i
         end = i + 1
         # Determine the color based on the action
         if action == 'FASTER':
@@ -166,12 +170,12 @@ def plot_series(policy, trace):
         else:
             color = 'blue'
         # Add the colored rectangle
-        plt.axvspan(start, end, ymin=0, ymax=0.05, facecolor=color, alpha=0.8)  # Adjust ymin and ymax values for rectangle height
+        # Adjust ymin and ymax values for rectangle height
+        plt.axvspan(start, end, ymin=0, ymax=0.05, facecolor=color, alpha=0.8)
 
     # Save the chart as an image file
     plt.savefig(directory+'distance.png')
-    
-    
+
     # plot velocities
     plt.clf()
     v_self_series = [x.state['v_self']['value'] for x in trace]
@@ -188,11 +192,14 @@ def plot_series(policy, trace):
     plt.grid(True)
     # Set the minimum values of the x and y axes to 0
     plt.xlim(0, None)
-    #plt.ylim(0, None)
-     # Iterate over each action
+    plt.minorticks_on()
+    plt.grid(True, which='minor', linestyle='--', alpha=0.4)
+
+    # plt.ylim(0, None)
+    # Iterate over each action
     for i, action in enumerate(actions):
         # Determine the x-coordinate range for the rectangle
-        start = i 
+        start = i
         end = i + 1
         # Determine the color based on the action
         if action == 'FASTER':
@@ -202,11 +209,28 @@ def plot_series(policy, trace):
         else:
             color = 'blue'
         # Add the colored rectangle
-        plt.axvspan(start, end, ymin=0, ymax=0.05, facecolor=color, alpha=0.8)  # Adjust ymin and ymax values for rectangle height
+        # Adjust ymin and ymax values for rectangle height
+        plt.axvspan(start, end, ymin=0, ymax=0.05, facecolor=color, alpha=0.8)
 
     # Save the chart as an image file
     plt.savefig(directory+'velocity.png')
 
+
+def pretty_str_state(state, iter):
+    pre_action = state.state['start']['value']
+    post_action = state.state['output']['value']
+    distance = state.state['x_diff']['value']
+    v_self = state.state['v_self']['value']
+    v_front = state.state['v_front']['value']
+    v_diff = state.state['v_diff']['value']
+    result = '(' + str(iter) + ') '
+    result += (pre_action + ' -> ' + post_action + ':\n')
+    tab = '   '
+    result += tab + 'distance: ' + str(distance) + '\n'
+    result += tab + 'v_self: ' + str(v_self) + '\n'
+    result += tab + 'v_front: ' + str(v_front) + '\n'
+    result += tab + 'v_diff: ' + str(v_diff)
+    return result
 
 
 OTHER_SPEED_RANGE_LOW = 30  # [m/s]
@@ -217,7 +241,7 @@ EGO_SPEED_RANGE_LOW = 20  # [m/s]
 EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 30  # [s]
+DURATION = 40  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
@@ -250,7 +274,7 @@ vehicle_densities_choices = np.linspace(
 config = {
     "lanes_count": 1,
     "duration": DURATION,
-    "policy_frequency": 8,
+    "policy_frequency": 10,
     "simulation_frequency": 40,
     "screen_width": 1500,
     "observation": {
@@ -311,9 +335,11 @@ def run_simulation(policy, spec, show=False):
     if not spec(trace):
         sat = False
     if show:
+        iter = 0
         for s in trace:
-            print(s.state)
-            print()
+            print(pretty_str_state(s, iter))
+            iter += 1
+            print('-'*50)
         plt.imshow(env.render())
     return sat, trace
 
@@ -370,10 +396,13 @@ def policy_ldips(state):
     v_front = state.get("v_front")
 
     pre = state.get("start")
-    slow_to_fast = (((x_diff - v_front) - (x_diff - (v_diff) ** 2)) > 29.988765716552734)
+    slow_to_fast = (
+        ((x_diff - v_front) - (x_diff - (v_diff) ** 2)) > 29.988765716552734)
     fast_to_fast = ((v_front - (v_self) ** 2) > -888.6221923828125)
-    slow_to_slow = (((x_diff - x_diff) - (v_self - (x_diff) ** 2)) > -929.6056518554688)
-    fast_to_slow = (((v_self) ** 2 > 891.6383056640625) and ((x_diff - (x_diff) ** 2) > -871.122314453125))
+    slow_to_slow = (
+        ((x_diff - x_diff) - (v_self - (x_diff) ** 2)) > -929.6056518554688)
+    fast_to_slow = (((v_self) ** 2 > 891.6383056640625)
+                    and ((x_diff - (x_diff) ** 2) > -871.122314453125))
 
     if pre == "SLOWER":
         if slow_to_fast:
@@ -402,10 +431,10 @@ def spec_1(trace):
 
 if __name__ == "__main__":
     # set the desired policy here
-    #POLICY = policy_ldips # the current policy is learned by LDIPS from the demo of the gt. It crashes. 
-    POLICY = policy_ground_truth
-    
+    POLICY = policy_ldips # the current policy is learned by LDIPS from the demo of the gt. It crashes.
+    #POLICY = policy_ground_truth
+
     sat, trace = run_simulation(POLICY, spec_1, show=True)
     save_trace_to_json(trace=trace)
     plot_series(policy=POLICY, trace=trace)
-    print(sat, len(trace))
+    print(f'{sat=}, {len(trace)=}')
