@@ -139,15 +139,50 @@ def plot_series(policy, trace):
     x_diff_series = [x.state['x_diff']['value'] for x in trace]
     # Create x-axis values ranging from 0 to the length of the data
     x = range(len(x_diff_series))
+    actions = [x.state['output']['value'] for x in trace]
+    print (actions)
     # Plot the sorted data as a line chart
     plt.plot(x, x_diff_series)
+
+    #for i in range(len(x_diff_series)):
+    #    if actions[i] == 'SLOWER':
+    #        plt.scatter(x[i], x_diff_series[i], color='red')
+    #    elif actions[i] == 'FASTER':
+    #        plt.scatter(x[i], x_diff_series[i], color='green')
+    #    else:
+    #        plt.scatter(x[i], x_diff_series[i], color='black')  # Default color for unknown actions
+
+
     # Add labels and title to the chart
     plt.xlabel('Time (s)')
     plt.ylabel("Distance (m)")
     plt.title('Distance Between Cars vs. Time')
     plt.grid(True)
+    # Set the minimum values of the x and y axes to 0
+    plt.xlim(0, None)
+    #plt.ylim(0, None)
+
+    # Plot colored rectangles for actions
+    #plt.axhspan(plt.ylim()[0], 1, facecolor='gray', alpha=0.3)  # Gray background
+    
+    # Iterate over each action
+    for i, action in enumerate(actions):
+        # Determine the x-coordinate range for the rectangle
+        start = i 
+        end = i + 1
+        # Determine the color based on the action
+        if action == 'FASTER':
+            color = 'green'
+        elif action == 'SLOWER':
+            color = 'red'
+        else:
+            color = 'blue'
+        # Add the colored rectangle
+        plt.axvspan(start, end, ymin=0, ymax=0.05, facecolor=color, alpha=0.8)  # Adjust ymin and ymax values for rectangle height
+
     # Save the chart as an image file
     plt.savefig(directory+'distance.png')
+    
     
     # plot velocities
     plt.clf()
@@ -163,6 +198,24 @@ def plot_series(policy, trace):
     plt.ylabel("Velocity (m/s)")
     plt.title('Velocities of the Cars vs. Time')
     plt.grid(True)
+    # Set the minimum values of the x and y axes to 0
+    plt.xlim(0, None)
+    #plt.ylim(0, None)
+     # Iterate over each action
+    for i, action in enumerate(actions):
+        # Determine the x-coordinate range for the rectangle
+        start = i 
+        end = i + 1
+        # Determine the color based on the action
+        if action == 'FASTER':
+            color = 'green'
+        elif action == 'SLOWER':
+            color = 'red'
+        else:
+            color = 'blue'
+        # Add the colored rectangle
+        plt.axvspan(start, end, ymin=0, ymax=0.05, facecolor=color, alpha=0.8)  # Adjust ymin and ymax values for rectangle height
+
     # Save the chart as an image file
     plt.savefig(directory+'velocity.png')
 
@@ -176,7 +229,7 @@ EGO_SPEED_RANGE_LOW = 20  # [m/s]
 EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 40  # [s]
+DURATION = 30  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
@@ -361,8 +414,8 @@ def spec_1(trace):
 
 if __name__ == "__main__":
     # set the desired policy here
-    POLICY = policy_ldips # the current policy is learned by LDIPS from the demo of the gt. It crashes. 
-    #POLICY = policy_ground_truth
+    #POLICY = policy_ldips # the current policy is learned by LDIPS from the demo of the gt. It crashes. 
+    POLICY = policy_ground_truth
     
     sat, trace = run_simulation(POLICY, spec_1, show=True)
     save_trace_to_json(trace=trace)
