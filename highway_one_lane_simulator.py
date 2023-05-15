@@ -145,7 +145,7 @@ def plot_series(policy, trace):
     plt.plot(x, x_diff_series)
 
     # Add labels and title to the chart
-    plt.xlabel('Time (s)')
+    plt.xlabel('Time (100 ms)')
     plt.ylabel("Distance (m)")
     plt.title('Distance Between Cars vs. Time')
     plt.grid(True)
@@ -239,7 +239,7 @@ EGO_SPEED_RANGE_LOW = 20  # [m/s]
 EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 30  # [s]
+DURATION = 40  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
@@ -250,7 +250,7 @@ MAX_DIST = 11
 D_CRASH = 5  # [m] Distance at which crash occurs in simulation
 
 # set this to any value n>0 if you want to sample n elements for each transition type (e.g. SLOWER->FASTER) to be included in the demo.json
-SAMPLES_NUMBER_PER_TRANSITION = 10
+SAMPLES_NUMBER_PER_TRANSITION = 5
 
 
 _other_speed_num_points = (
@@ -393,13 +393,10 @@ def policy_ldips(state):
     v_front = state.get("v_front")
 
     pre = state.get("start")
-    slow_to_fast = (
-        ((x_diff - v_front) - (x_diff - (v_diff) ** 2)) > 29.988765716552734)
-    fast_to_fast = ((v_front - (v_self) ** 2) > -888.6221923828125)
-    slow_to_slow = (
-        ((x_diff - x_diff) - (v_self - (x_diff) ** 2)) > -929.6056518554688)
-    fast_to_slow = (((v_self) ** 2 > 891.6383056640625)
-                    and ((x_diff - (x_diff) ** 2) > -871.122314453125))
+    slow_to_fast = (((x_diff) ** 2 - (v_front) ** 2) > 1799.7431640625)
+    fast_to_fast = (((v_diff) ** 2 - v_self) > -30.121679306030273)
+    slow_to_slow = (((x_diff - x_diff) - (v_diff - (x_diff) ** 2)) > -899.7526245117188)
+    fast_to_slow = ((v_front - (v_front) ** 2) > -870.155029296875)
 
     if pre == "SLOWER":
         if slow_to_fast:
@@ -443,8 +440,8 @@ def analyze_trace(trace):
 
 if __name__ == "__main__":
     # set the desired policy here
-    # POLICY = policy_ldips # the current policy is learned by LDIPS from the demo of the gt. It crashes.
-    POLICY = policy_ground_truth
+    POLICY = policy_ldips 
+    #POLICY = policy_ground_truth
 
     sat, trace = run_simulation(POLICY, spec_1, show=True)
     plot_series(policy=POLICY, trace=trace)
@@ -455,9 +452,36 @@ if __name__ == "__main__":
         sampled_trace = []
         samples_map = analyze_trace(trace=trace)    
         for k in samples_map.keys():
-            for s in random.sample(samples_map[k], SAMPLES_NUMBER_PER_TRANSITION):
-                sampled_trace.append(s)
-        save_trace_to_json(trace=sampled_trace)
-    else:
-        save_trace_to_json(trace=trace)
+            if len(samples_map[k]) >= SAMPLES_NUMBER_PER_TRANSITION:
+                for s in random.sample(samples_map[k], SAMPLES_NUMBER_PER_TRANSITION):
+                    sampled_trace.append(s)
+            else:
+                for s in samples_map[k]:
+                    sampled_trace.append(s)
+
+        save_trace_to_json(trace=sampled_trace, filename='sampled_demo.json')
+    save_trace_to_json(trace=trace, filename='full_demo.json')
+    
+    # manual repair
+    if POLICY == policy_ldips:
+        while(True):
+            print (f'There are {len(trace)} transitions in the trace of the learned policy. Enter the index of the transition to repair:')
+            idx = int(input())
+            print('Here is the chosen transition sample:')
+            sample = trace[idx]
+            print (pretty_str_state(sample, idx)) 
+            print ('continue?')
+            cont = input()
+            if cont in {'y','Y','yes'}:
+                break
+        print ('Enter correct post action:')
+        repaired_post_action = input()
+        assert repaired_post_action in {'SLOWER', 'FASTER'}
+        print ('New repaired sample:')
+        json_sample = sample.state
+        json_sample['output']['value'] = repaired_post_action
+        print (json.dumps(json_sample))
+
+
+
 
