@@ -418,14 +418,22 @@ def find_spec_1_breakpoint(trace):
     """ Distance always greater than D_CRASH """
     for i, s in enumerate(trace):
         if s.get('x_diff') <= D_CRASH:
-            return i-1, False
+            while i-1 >= 0:
+                if trace[i-1].get('output') == 'FASTER':
+                    return i-1, False
+                i -= 1
+            break
     return None, True
 
 def find_spec_2_breakpoint(trace):
     """ Distance always less than DESIRED_DISTANCE + DELTA_DISTANCE """
     for i, s in enumerate(trace):
         if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE_MAX:
-            return i-1, False
+            while i-1 >= 0:
+                if trace[i-1].get('output') == 'SLOWER':
+                    return i-1, False
+                i -= 1
+            break
     return None, True
 
 def find_spec_3_breakpoint(trace):
@@ -434,9 +442,17 @@ def find_spec_3_breakpoint(trace):
         if i < COUNT:
             continue
         if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE:
-            return i-1, False
+            while i-1 >= 0:
+                if trace[i-1].get('output') == 'SLOWER':
+                    return i-1, False
+                i -= 1
+            break
         if s.get('x_diff') <= DESIRED_DISTANCE - DELTA_DISTANCE:
-            return i-1, False
+            while i-1 >= 0:
+                if trace[i-1].get('output') == 'FASTER':
+                    return i-1, False
+                i -= 1
+            break
     return None, True
 
 
@@ -474,9 +490,8 @@ if __name__ == "__main__":
             print (pretty_str_state(state=sample,iter=i))
             print()
 
-            # XXX  
-            #if sample.state['output']['value'] == "SLOWER":
-            #    sample.state['output']['value'] = "FASTER"
+            if sample.state['output']['value'] == "SLOWER":
+               sample.state['output']['value'] = "FASTER"
             if sample.state['output']['value'] == "FASTER":
                 sample.state['output']['value'] = "SLOWER"
             else:
