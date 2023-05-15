@@ -10,6 +10,8 @@ from highway_env.road.road import Road, Route
 from highway_env.utils import Vector
 import random
 
+from learned_policy import policy_ldips
+
 
 class LDIPSState(object):
     def __init__(self, state) -> None:
@@ -239,7 +241,7 @@ EGO_SPEED_RANGE_LOW = 20  # [m/s]
 EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 120  # [s]
+DURATION = 40  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
@@ -385,43 +387,6 @@ def policy_ground_truth(state):
     return post
 
 
-def policy_ldips(state):
-    """Ground truth policy."""
-    x_diff = state.get("x_diff")
-    v_diff = state.get("v_diff")
-    v_self = state.get("v_self")
-    v_front = state.get("v_front")
-
-    slow_to_fast = ((v_front - (v_self) ** 2) > -862.127197265625)
-    fast_to_fast = (((x_diff) ** 2 - v_self) > 869.876708984375)
-    slow_to_slow = (((v_diff) ** 2 - (x_diff) ** 2) > -899.3023071289062)
-    fast_to_slow = (((v_diff) ** 2 - (x_diff) ** 2) > -900.1201171875)
-
-
-
-    slow_to_fast = x_diff < 49
-    fast_to_fast = x_diff < 49
-    slow_to_slow = x_diff > 51
-    fast_to_slow = x_diff > 51
-
-
-    pre = state.get("start")
-    if pre == "SLOWER":
-        if slow_to_fast:
-            post = "FASTER"
-        elif slow_to_slow:
-            post = "SLOWER"
-        else:
-            post = "SLOWER"
-    elif pre == "FASTER":
-        if fast_to_slow:
-            post = "SLOWER"
-        elif fast_to_fast:
-            post = "FASTER"
-        else:
-            post = "FASTER"
-    return post
-
 
 def spec_1(trace):
     last_state = trace[-1]
@@ -447,6 +412,7 @@ def analyze_trace(trace):
 
 COUNT = 20 * config['simulation_frequency']
 DELTA_DISTANCE = 1 # [m]
+DELTA_DISTANCE_MAX = 3 # how much above the desired allowed to go
 
 def find_spec_1_breakpoint(trace):
     """ Distance always greater than D_CRASH """
@@ -458,7 +424,7 @@ def find_spec_1_breakpoint(trace):
 def find_spec_2_breakpoint(trace):
     """ Distance always less than DESIRED_DISTANCE + DELTA_DISTANCE """
     for i, s in enumerate(trace):
-        if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE:
+        if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE_MAX:
             return i-1, False
     return None, True
 
@@ -504,9 +470,14 @@ if __name__ == "__main__":
         if not sat:
             print("Found broken spec 1:\n")
             sample = trace[i]
-            if sample.state['output']['value'] == "SLOWER":
-                sample.state['output']['value'] = "FASTER"
-            elif sample.state['output']['value'] == "FASTER":
+            print ('state before repair:')
+            print (pretty_str_state(state=sample,iter=i))
+            print()
+
+            # XXX  
+            #if sample.state['output']['value'] == "SLOWER":
+            #    sample.state['output']['value'] = "FASTER"
+            if sample.state['output']['value'] == "FASTER":
                 sample.state['output']['value'] = "SLOWER"
             else:
                 raise Exception("Invalid action")
@@ -516,6 +487,10 @@ if __name__ == "__main__":
             if not sat:
                 print("Found broken spec 2:\n")
                 sample = trace[i]
+                print ('state before repair:')
+                print (pretty_str_state(state=sample,iter=i))
+                print()
+
                 if sample.state['output']['value'] == "SLOWER":
                     sample.state['output']['value'] = "FASTER"
                 elif sample.state['output']['value'] == "FASTER":
@@ -528,6 +503,9 @@ if __name__ == "__main__":
                 if not sat:
                     print("Found broken spec 3:\n")
                     sample = trace[i]
+                    print ('state before repair:')
+                    print (pretty_str_state(state=sample,iter=i))
+                    print()
                     if sample.state['output']['value'] == "SLOWER":
                         sample.state['output']['value'] = "FASTER"
                     elif sample.state['output']['value'] == "FASTER":
