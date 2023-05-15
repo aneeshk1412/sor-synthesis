@@ -3,3 +3,4 @@ demo.json
 full_demo.json
 plots/
 sampled_demo.json
+__pycache__/
