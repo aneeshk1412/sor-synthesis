@@ -135,7 +135,6 @@ def plot_series(policy, trace):
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-    
     # plot x diff
     plt.clf()
     x_diff_series = [x.state['x_diff']['value'] for x in trace]
@@ -155,7 +154,6 @@ def plot_series(policy, trace):
     # plt.ylim(0, None)
     plt.minorticks_on()
     plt.grid(True, which='minor', linestyle='--', alpha=0.4)
-
 
     # Iterate over each action
     for i, action in enumerate(actions):
@@ -241,7 +239,7 @@ EGO_SPEED_RANGE_LOW = 20  # [m/s]
 EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 40  # [s]
+DURATION = 30  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
@@ -250,6 +248,10 @@ MIN_DIST = 10
 # [m] Maximum distance between ego and other vehicle in initial state
 MAX_DIST = 11
 D_CRASH = 5  # [m] Distance at which crash occurs in simulation
+
+# set this to any value n>0 if you want to sample n elements for each transition type (e.g. SLOWER->FASTER) to be included in the demo.json
+SAMPLES_NUMBER_PER_TRANSITION = 10
+
 
 _other_speed_num_points = (
     int(OTHER_SPEED_RANGE_HIGH - OTHER_SPEED_RANGE_LOW) // OTHER_SPEED_INTERVAL + 1
@@ -335,11 +337,6 @@ def run_simulation(policy, spec, show=False):
     if not spec(trace):
         sat = False
     if show:
-        iter = 0
-        for s in trace:
-            print(pretty_str_state(s, iter))
-            iter += 1
-            print('-'*50)
         plt.imshow(env.render())
     return sat, trace
 
@@ -429,12 +426,38 @@ def spec_1(trace):
         return True
 
 
+def analyze_trace(trace):
+    result = {('SLOWER', 'SLOWER'): [], ('SLOWER', 'FASTER'): [],
+              ('FASTER', 'FASTER'): [], ('FASTER', 'SLOWER'): []}
+
+    iter = 0
+    for s in trace:
+        print(pretty_str_state(s, iter))
+        iter += 1
+        print('-'*50)
+        pre_action = s.state['start']['value']
+        post_action = s.state['output']['value']
+        result[(pre_action, post_action)].append(s)
+    return result
+
+
 if __name__ == "__main__":
     # set the desired policy here
-    POLICY = policy_ldips # the current policy is learned by LDIPS from the demo of the gt. It crashes.
-    #POLICY = policy_ground_truth
+    # POLICY = policy_ldips # the current policy is learned by LDIPS from the demo of the gt. It crashes.
+    POLICY = policy_ground_truth
 
     sat, trace = run_simulation(POLICY, spec_1, show=True)
-    save_trace_to_json(trace=trace)
     plot_series(policy=POLICY, trace=trace)
     print(f'{sat=}, {len(trace)=}')
+    
+    # if you want to have a fix and same number of samples for each type of transition
+    if SAMPLES_NUMBER_PER_TRANSITION > 0:
+        sampled_trace = []
+        samples_map = analyze_trace(trace=trace)    
+        for k in samples_map.keys():
+            for s in random.sample(samples_map[k], SAMPLES_NUMBER_PER_TRANSITION):
+                sampled_trace.append(s)
+        save_trace_to_json(trace=sampled_trace)
+    else:
+        save_trace_to_json(trace=trace)
+
