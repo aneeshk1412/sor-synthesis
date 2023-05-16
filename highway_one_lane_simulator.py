@@ -223,7 +223,10 @@ def pretty_str_state(state, iter):
     v_self = state.state['v_self']['value']
     v_front = state.state['v_front']['value']
     v_diff = state.state['v_diff']['value']
-    result = '(' + str(iter) + ') '
+    if iter:
+        result = '(' + str(iter) + ') '
+    else:
+        result = ''
     result += (pre_action + ' -> ' + post_action + ':\n')
     tab = '   '
     result += tab + 'distance: ' + str(distance) + '\n'
@@ -241,7 +244,7 @@ EGO_SPEED_RANGE_LOW = 20  # [m/s]
 EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 40  # [s]
+DURATION = 25  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
@@ -387,7 +390,6 @@ def policy_ground_truth(state):
     return post
 
 
-
 def spec_1(trace):
     last_state = trace[-1]
     if abs(last_state.get("x_diff") - DESIRED_DISTANCE) > 1:
@@ -399,7 +401,6 @@ def spec_1(trace):
 def analyze_trace(trace):
     result = {('SLOWER', 'SLOWER'): [], ('SLOWER', 'FASTER'): [],
               ('FASTER', 'FASTER'): [], ('FASTER', 'SLOWER'): []}
-
     iter = 0
     for s in trace:
         print(pretty_str_state(s, iter))
@@ -410,9 +411,11 @@ def analyze_trace(trace):
         result[(pre_action, post_action)].append(s)
     return result
 
-COUNT = 20 * config['simulation_frequency']
-DELTA_DISTANCE = 1 # [m]
-DELTA_DISTANCE_MAX = 3 # how much above the desired allowed to go
+
+COUNT = int(DURATION * 0.85) * config['policy_frequency']
+# DELTA_DISTANCE = 1  # [m]
+DELTA_DISTANCE_MAX = 3  # how much above the desired allowed to go
+
 
 def find_spec_1_breakpoint(trace):
     """ Distance always greater than D_CRASH """
@@ -425,6 +428,7 @@ def find_spec_1_breakpoint(trace):
             break
     return None, True
 
+
 def find_spec_2_breakpoint(trace):
     """ Distance always less than DESIRED_DISTANCE + DELTA_DISTANCE """
     for i, s in enumerate(trace):
@@ -436,18 +440,19 @@ def find_spec_2_breakpoint(trace):
             break
     return None, True
 
+
 def find_spec_3_breakpoint(trace):
-    """ Distance between DESIRED_DISTANCE + DELTA_DISTANCE and DESIRED_DISTANCE - DELTA_DISTANCE after COUNT seconds """
+    """ Distance between DESIRED_DISTANCE + DELTA_DISTANCE_MAX and DESIRED_DISTANCE - DELTA_DISTANCE_MAX after COUNT seconds """
     for i, s in enumerate(trace):
         if i < COUNT:
             continue
-        if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE:
+        if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE_MAX:
             while i-1 >= 0:
                 if trace[i-1].get('output') == 'SLOWER':
                     return i-1, False
                 i -= 1
             break
-        if s.get('x_diff') <= DESIRED_DISTANCE - DELTA_DISTANCE:
+        if s.get('x_diff') <= DESIRED_DISTANCE - DELTA_DISTANCE_MAX:
             while i-1 >= 0:
                 if trace[i-1].get('output') == 'FASTER':
                     return i-1, False
@@ -459,7 +464,7 @@ def find_spec_3_breakpoint(trace):
 if __name__ == "__main__":
     # set the desired policy here
     POLICY = policy_ldips
-    #POLICY = policy_ground_truth
+    # POLICY = policy_ground_truth
 
     sat, trace = run_simulation(POLICY, spec_1, show=True)
     plot_series(policy=POLICY, trace=trace)
@@ -480,77 +485,90 @@ if __name__ == "__main__":
         save_trace_to_json(trace=sampled_trace, filename='sampled_demo.json')
     save_trace_to_json(trace=trace, filename='full_demo.json')
 
-    ## automatic repair
+    # automatic repair
+    repaired_samples_json = []
     if POLICY == policy_ldips:
+        # check spec_1 and suggest a repairs
         i, sat = find_spec_1_breakpoint(trace)
         if not sat:
-            print("Found broken spec 1:\n")
+            print('*'*110)
+            print("Found violation of spec 1!\n")
             sample = trace[i]
-            print ('state before repair:')
-            print (pretty_str_state(state=sample,iter=i))
-            print()
-
+            print('State BEFORE repair:')
+            print(pretty_str_state(state=sample, iter=i))
             if sample.state['output']['value'] == "SLOWER":
-               sample.state['output']['value'] = "FASTER"
-            if sample.state['output']['value'] == "FASTER":
+                sample.state['output']['value'] = "FASTER"
+            elif sample.state['output']['value'] == "FASTER":
                 sample.state['output']['value'] = "SLOWER"
             else:
                 raise Exception("Invalid action")
-            print(json.dumps(sample.state))
-        else:
-            i, sat = find_spec_2_breakpoint(trace)
-            if not sat:
-                print("Found broken spec 2:\n")
-                sample = trace[i]
-                print ('state before repair:')
-                print (pretty_str_state(state=sample,iter=i))
-                print()
+            print('State AFTER repair:')
+            print(pretty_str_state(state=sample, iter=i))
+            repaired_samples_json.append(json.dumps(sample.state))
+            # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
+            # note that this is not used in the learning algorithm in any ways
+            print('Prediction of the ground truth policy: ', policy_ground_truth(
+                sample), '  --  ', 'Consistent with repair?', policy_ground_truth(sample) == sample.state['output']['value'])
+            # this should be removed XXX
+            if not policy_ground_truth(sample) == sample.state['output']['value']:
+                raise Exception(
+                    'repair is not consistent with the ground truth')
 
-                if sample.state['output']['value'] == "SLOWER":
-                    sample.state['output']['value'] = "FASTER"
-                elif sample.state['output']['value'] == "FASTER":
-                    sample.state['output']['value'] = "SLOWER"
-                else:
-                    raise Exception("Invalid action")
-                print(json.dumps(sample.state))
+        # check spec_2 and suggest a repair
+        i, sat = find_spec_2_breakpoint(trace)
+        if not sat:
+            print('*'*110)
+            print("Found violation of spec 2!\n")
+            sample = trace[i]
+            print('State BEFORE repair:')
+            print(pretty_str_state(state=sample, iter=i))
+            if sample.state['output']['value'] == "SLOWER":
+                sample.state['output']['value'] = "FASTER"
+            elif sample.state['output']['value'] == "FASTER":
+                sample.state['output']['value'] = "SLOWER"
             else:
-                i, sat = find_spec_3_breakpoint(trace)
-                if not sat:
-                    print("Found broken spec 3:\n")
-                    sample = trace[i]
-                    print ('state before repair:')
-                    print (pretty_str_state(state=sample,iter=i))
-                    print()
-                    if sample.state['output']['value'] == "SLOWER":
-                        sample.state['output']['value'] = "FASTER"
-                    elif sample.state['output']['value'] == "FASTER":
-                        sample.state['output']['value'] = "SLOWER"
-                    else:
-                        raise Exception("Invalid action")
-                    print(json.dumps(sample.state))
-                else:
-                    print("No broken specs found")
+                raise Exception("Invalid action")
+            print('State AFTER repair:')
+            print(pretty_str_state(state=sample, iter=i))
+            repaired_samples_json.append(json.dumps(sample.state))
+            # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
+            # note that this is not used in the learning algorithm in any ways
+            print('Prediction of the ground truth policy: ', policy_ground_truth(
+                sample), '  --  ', 'Consistent with repair?', policy_ground_truth(sample) == sample.state['output']['value'])
+            # this should be removed XXX
+            if not policy_ground_truth(sample) == sample.state['output']['value']:
+                raise Exception(
+                    'repair is not consistent with the ground truth')
 
-    ## manual repair
-    # if POLICY == policy_ldips:
-    #     while(True):
-    #         print (f'There are {len(trace)} transitions in the trace of the learned policy. Enter the index of the transition to repair:')
-    #         idx = int(input())
-    #         print('Here is the chosen transition sample:')
-    #         sample = trace[idx]
-    #         print (pretty_str_state(sample, idx))
-    #         print ('continue?')
-    #         cont = input()
-    #         if cont in {'y','Y','yes'}:
-    #             break
-    #     print ('Enter correct post action:')
-    #     repaired_post_action = input()
-    #     assert repaired_post_action in {'SLOWER', 'FASTER'}
-    #     print ('New repaired sample:')
-    #     json_sample = sample.state
-    #     json_sample['output']['value'] = repaired_post_action
-    #     print (json.dumps(json_sample))
+        # check spec_3 and suggest a repair
+        i, sat = find_spec_3_breakpoint(trace)
+        if not sat:
+            print('*'*110)
+            print("Found violation of spec 3!\n")
+            sample = trace[i]
+            print('State BEFORE repair:')
+            print(pretty_str_state(state=sample, iter=i))
+            if sample.state['output']['value'] == "SLOWER":
+                sample.state['output']['value'] = "FASTER"
+            elif sample.state['output']['value'] == "FASTER":
+                sample.state['output']['value'] = "SLOWER"
+            else:
+                raise Exception("Invalid action")
+            print('State AFTER repair:')
+            print(pretty_str_state(state=sample, iter=i))
+            repaired_samples_json.append(json.dumps(sample.state))
+            # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
+            # note that this is not used in the learning algorithm in any ways
+            print('Prediction of the ground truth policy: ', policy_ground_truth(
+                sample), '  --  ', 'Consistent with repair?', policy_ground_truth(sample) == sample.state['output']['value'])
+            # this should be removed XXX
+            if not policy_ground_truth(sample) == sample.state['output']['value']:
+                raise Exception(
+                    'repair is not consistent with the ground truth')
 
-
-
-
+        print('-'*110)
+        print('All repaired samples:\n')
+        print(repaired_samples_json)
+        # write the repaiered samples into a file
+        with open('repaired_samples.json', "w") as f:
+            f.write(json.dumps(repaired_samples_json))
