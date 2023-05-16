@@ -10,7 +10,7 @@ from highway_env.road.road import Road, Route
 from highway_env.utils import Vector
 import random
 
-from learned_policy import policy_ldips
+from pips.learned_policy import policy_ldips
 
 
 class LDIPSState(object):
@@ -244,7 +244,7 @@ EGO_SPEED_RANGE_LOW = 20  # [m/s]
 EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 25  # [s]
+DURATION = 45  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
@@ -403,9 +403,9 @@ def analyze_trace(trace):
               ('FASTER', 'FASTER'): [], ('FASTER', 'SLOWER'): []}
     iter = 0
     for s in trace:
-        print(pretty_str_state(s, iter))
+        #print(pretty_str_state(s, iter))
         iter += 1
-        print('-'*50)
+        #print('-'*50)
         pre_action = s.state['start']['value']
         post_action = s.state['output']['value']
         result[(pre_action, post_action)].append(s)
@@ -464,7 +464,7 @@ def find_spec_3_breakpoint(trace):
 if __name__ == "__main__":
     # set the desired policy here
     POLICY = policy_ldips
-    # POLICY = policy_ground_truth
+    #POLICY = policy_ground_truth
 
     sat, trace = run_simulation(POLICY, spec_1, show=True)
     plot_series(policy=POLICY, trace=trace)
@@ -482,8 +482,8 @@ if __name__ == "__main__":
                 for s in samples_map[k]:
                     sampled_trace.append(s)
 
-        save_trace_to_json(trace=sampled_trace, filename='sampled_demo.json')
-    save_trace_to_json(trace=trace, filename='full_demo.json')
+        save_trace_to_json(trace=sampled_trace, filename='demos/sampled_demo.json')
+    save_trace_to_json(trace=trace, filename='demos/full_demo.json')
  
     # automatic repair
     repaired_samples_json = []
@@ -504,7 +504,7 @@ if __name__ == "__main__":
                 raise Exception("Invalid action")
             print('State AFTER repair:')
             print(pretty_str_state(state=sample, iter=i))
-            repaired_samples_json.append(json.dumps(sample.state))
+            repaired_samples_json.append(sample.state)
             # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
             # note that this is not used in the learning algorithm in any ways
             print('Prediction of the ground truth policy: ', policy_ground_truth(
@@ -530,7 +530,7 @@ if __name__ == "__main__":
                 raise Exception("Invalid action")
             print('State AFTER repair:')
             print(pretty_str_state(state=sample, iter=i))
-            repaired_samples_json.append(json.dumps(sample.state))
+            repaired_samples_json.append(sample.state)
             # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
             # note that this is not used in the learning algorithm in any ways
             print('Prediction of the ground truth policy: ', policy_ground_truth(
@@ -541,34 +541,34 @@ if __name__ == "__main__":
                     'repair is not consistent with the ground truth')
 
         # check spec_3 and suggest a repair
-        i, sat = find_spec_3_breakpoint(trace)
-        if not sat:
-            print('*'*110)
-            print("Found violation of spec 3!\n")
-            sample = trace[i]
-            print('State BEFORE repair:')
-            print(pretty_str_state(state=sample, iter=i))
-            if sample.state['output']['value'] == "SLOWER":
-                sample.state['output']['value'] = "FASTER"
-            elif sample.state['output']['value'] == "FASTER":
-                sample.state['output']['value'] = "SLOWER"
-            else:
-                raise Exception("Invalid action")
-            print('State AFTER repair:')
-            print(pretty_str_state(state=sample, iter=i))
-            repaired_samples_json.append(json.dumps(sample.state))
-            # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
-            # note that this is not used in the learning algorithm in any ways
-            print('Prediction of the ground truth policy: ', policy_ground_truth(
-                sample), '  --  ', 'Consistent with repair?', policy_ground_truth(sample) == sample.state['output']['value'])
-            # this should be removed XXX
-            if not policy_ground_truth(sample) == sample.state['output']['value']:
-                raise Exception(
-                    'repair is not consistent with the ground truth')
+        # i, sat = find_spec_3_breakpoint(trace)
+        # if not sat:
+        #     print('*'*110)
+        #     print("Found violation of spec 3!\n")
+        #     sample = trace[i]
+        #     print('State BEFORE repair:')
+        #     print(pretty_str_state(state=sample, iter=i))
+        #     if sample.state['output']['value'] == "SLOWER":
+        #         sample.state['output']['value'] = "FASTER"
+        #     elif sample.state['output']['value'] == "FASTER":
+        #         sample.state['output']['value'] = "SLOWER"
+        #     else:
+        #         raise Exception("Invalid action")
+        #     print('State AFTER repair:')
+        #     print(pretty_str_state(state=sample, iter=i))
+        #     repaired_samples_json.append(sample.state)
+        #     # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
+        #     # note that this is not used in the learning algorithm in any ways
+        #     print('Prediction of the ground truth policy: ', policy_ground_truth(
+        #         sample), '  --  ', 'Consistent with repair?', policy_ground_truth(sample) == sample.state['output']['value'])
+        #     # this should be removed XXX
+        #     if not policy_ground_truth(sample) == sample.state['output']['value']:
+        #         raise Exception(
+        #             'repair is not consistent with the ground truth')
 
         print('-'*110)
         print('All repaired samples:\n')
         print(repaired_samples_json)
         # write the repaiered samples into a file
-        with open('repaired_samples.json', "w") as f:
+        with open('demos/repaired_samples.json', "w") as f:
             f.write(json.dumps(repaired_samples_json))
