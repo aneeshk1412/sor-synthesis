@@ -484,7 +484,7 @@ if __name__ == "__main__":
 
         save_trace_to_json(trace=sampled_trace, filename='sampled_demo.json')
     save_trace_to_json(trace=trace, filename='full_demo.json')
-
+ 
     # automatic repair
     repaired_samples_json = []
     if POLICY == policy_ldips:
