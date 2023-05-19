@@ -77,6 +77,17 @@ def speed_template(name, value):
     }
 
 
+def acceleration_template(name, value):
+    return {
+        name: {
+            "dim": [1, -2, 0],
+            "type": "NUM",
+            "name": name,
+            "value": value,
+        }
+    }
+
+
 def start_template(value):
     return {
         "start": {"dim": [0, 0, 0], "type": "STATE", "name": "start", "value": value}
@@ -92,10 +103,9 @@ def output_template(value):
 def compute_state(obs):
     """Compute the state in LDIPS format (json object) from the given observation"""
     return {
-        **dimensionless_template("x_diff", float(obs[1][0] - obs[0][0])),
-        **dimensionless_template("v_diff", float(obs[1][1] - obs[0][1])),
-        **dimensionless_template("v_self", float(obs[0][1])),
-        **dimensionless_template("v_front", float(obs[1][1])),
+        **distance_template("x_diff", float(obs[1][0] - obs[0][0])),
+        **speed_template("v_diff", float(obs[1][1] - obs[0][1])),
+        **acceleration_template("acc", float(2.0)),
     }
 
 
@@ -133,7 +143,7 @@ def save_trace_to_json(trace, filename="demo.json"):
         f.write(trace_json)
 
 
-def plot_series(policy, trace):
+def plot_series(policy, trace, init_dist, init_v_diff):
     directory = 'plots/' + str(policy.__name__) + '/'
     if not os.path.exists(directory):
         os.makedirs(directory)
@@ -150,7 +160,7 @@ def plot_series(policy, trace):
     # Add labels and title to the chart
     plt.xlabel('Time (100 ms)')
     plt.ylabel("Distance (m)")
-    plt.title('Distance Between Cars vs. Time')
+    plt.title(f'Distance Between Cars vs. Time\n{init_dist=}\n{init_v_diff=}')
     plt.grid(True)
     # Set the minimum values of the x and y axes to 0
     plt.xlim(0, None)
@@ -177,52 +187,13 @@ def plot_series(policy, trace):
     # Save the chart as an image file
     plt.savefig(directory+'distance.png')
 
-    # plot velocities
-    plt.clf()
-    v_self_series = [x.state['v_self']['value'] for x in trace]
-    v_front_series = [x.state['v_front']['value'] for x in trace]
-    # Create x-axis values ranging from 0 to the length of the data
-    x = range(len(v_self_series))
-    # Plot the sorted data as a line chart
-    plt.plot(x, v_self_series)
-    plt.plot(x, v_front_series)
-    # Add labels and title to the chart
-    plt.xlabel('Time (s)')
-    plt.ylabel("Velocity (m/s)")
-    plt.title('Velocities of the Cars vs. Time')
-    plt.grid(True)
-    # Set the minimum values of the x and y axes to 0
-    plt.xlim(0, None)
-    plt.minorticks_on()
-    plt.grid(True, which='minor', linestyle='--', alpha=0.4)
-
-    # plt.ylim(0, None)
-    # Iterate over each action
-    for i, action in enumerate(actions):
-        # Determine the x-coordinate range for the rectangle
-        start = i
-        end = i + 1
-        # Determine the color based on the action
-        if action == 'FASTER':
-            color = 'green'
-        elif action == 'SLOWER':
-            color = 'red'
-        else:
-            color = 'blue'
-        # Add the colored rectangle
-        # Adjust ymin and ymax values for rectangle height
-        plt.axvspan(start, end, ymin=0, ymax=0.05, facecolor=color, alpha=0.8)
-
-    # Save the chart as an image file
-    plt.savefig(directory+'velocity.png')
-
 
 def pretty_str_state(state, iter):
     pre_action = state.state['start']['value']
     post_action = state.state['output']['value']
     distance = state.state['x_diff']['value']
-    v_self = state.state['v_self']['value']
-    v_front = state.state['v_front']['value']
+    # v_self = state.state['v_self']['value']
+    # v_front = state.state['v_front']['value']
     v_diff = state.state['v_diff']['value']
     if iter:
         result = '(' + str(iter) + ') '
@@ -231,13 +202,13 @@ def pretty_str_state(state, iter):
     result += (pre_action + ' -> ' + post_action + ':\n')
     tab = '   '
     result += tab + 'distance: ' + str(distance) + '\n'
-    result += tab + 'v_self: ' + str(v_self) + '\n'
-    result += tab + 'v_front: ' + str(v_front) + '\n'
+    # result += tab + 'v_self: ' + str(v_self) + '\n'
+    # result += tab + 'v_front: ' + str(v_front) + '\n'
     result += tab + 'v_diff: ' + str(v_diff)
     return result
 
 
-OTHER_SPEED_RANGE_LOW = 22 # [m/s]
+OTHER_SPEED_RANGE_LOW = 22  # [m/s]
 OTHER_SPEED_RANGE_HIGH = 37  # [m/s]
 OTHER_SPEED_INTERVAL = 1  # [m/s]
 
@@ -256,7 +227,7 @@ MAX_DIST = 20
 D_CRASH = 5  # [m] Distance at which crash occurs in simulation
 
 # set this to any value n>0 if you want to sample n elements for each transition type (e.g. SLOWER->FASTER) to be included in the demo.json
-SAMPLES_NUMBER_PER_TRANSITION = 1000
+SAMPLES_NUMBER_PER_TRANSITION = 10
 
 
 _other_speed_num_points = (
@@ -301,12 +272,6 @@ config = {
 }
 
 
-def init_condition(state):
-    v_diff = state.get("v_diff")
-    x_diff = state.get("x_diff")
-    return v_diff**2 / 2 - x_diff > D_CRASH
-
-
 def run_simulation(policy, spec, show=False):
     env = gym.make("highway-v0", render_mode="rgb_array")
     env.configure(config)
@@ -345,20 +310,6 @@ def run_simulation(policy, spec, show=False):
     if show:
         plt.imshow(env.render())
     return sat, trace
-
-
-def verify_policy(policy, spec, show=False, num_runs=20):
-    sat = True
-    i = 0
-    while i < num_runs:
-        print("ITERATION", i, "of", num_runs, "runs")
-        sat, trace = run_simulation(policy, spec, show=show)
-        if sat is None:
-            continue
-        if sat is False:
-            return sat, trace
-        i += 1
-    return True, []
 
 
 def policy_ground_truth(state):
@@ -404,9 +355,9 @@ def analyze_trace(trace):
               ('FASTER', 'FASTER'): [], ('FASTER', 'SLOWER'): []}
     iter = 0
     for s in trace:
-        #print(pretty_str_state(s, iter))
+        # print(pretty_str_state(s, iter))
         iter += 1
-        #print('-'*50)
+        # print('-'*50)
         pre_action = s.state['start']['value']
         post_action = s.state['output']['value']
         result[(pre_action, post_action)].append(s)
@@ -414,52 +365,7 @@ def analyze_trace(trace):
 
 
 COUNT = int(DURATION * 0.85) * config['policy_frequency']
-# DELTA_DISTANCE = 1  # [m]
 DELTA_DISTANCE_MAX = 3  # how much above the desired allowed to go
-
-
-def find_spec_1_breakpoint(trace):
-    """ Distance always greater than D_CRASH """
-    for i, s in enumerate(trace):
-        if s.get('x_diff') <= D_CRASH:
-            while i-1 >= 0:
-                if trace[i-1].get('output') == 'FASTER':
-                    return i-1, False
-                i -= 1
-            break
-    return None, True
-
-
-def find_spec_2_breakpoint(trace):
-    """ Distance always less than DESIRED_DISTANCE + DELTA_DISTANCE """
-    for i, s in enumerate(trace):
-        if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE_MAX:
-            while i-1 >= 0:
-                if trace[i-1].get('output') == 'SLOWER':
-                    return i-1, False
-                i -= 1
-            break
-    return None, True
-
-
-def find_spec_3_breakpoint(trace):
-    """ Distance between DESIRED_DISTANCE + DELTA_DISTANCE_MAX and DESIRED_DISTANCE - DELTA_DISTANCE_MAX after COUNT seconds """
-    for i, s in enumerate(trace):
-        if i < COUNT:
-            continue
-        #if s.get('x_diff') >= DESIRED_DISTANCE + DELTA_DISTANCE_MAX:
-        #    while i-1 >= 0:
-        #        if trace[i-1].get('output') == 'SLOWER':
-        #            return i-1, False
-        #        i -= 1
-        #    break
-        if s.get('x_diff') <= DESIRED_DISTANCE - DELTA_DISTANCE_MAX:
-            while i-1 >= 0:
-                if trace[i-1].get('output') == 'FASTER':
-                    return i-1, False
-                i -= 1
-            break
-    return None, True
 
 
 if __name__ == "__main__":
@@ -477,7 +383,9 @@ if __name__ == "__main__":
         raise Exception('policy should be either gt or ldips')
 
     sat, trace = run_simulation(POLICY, spec_1, show=True)
-    plot_series(policy=POLICY, trace=trace)
+
+    plot_series(policy=POLICY, trace=trace, init_dist=trace[0].get(
+        "x_diff"), init_v_diff=trace[0].get("v_diff"))
     print(f'{sat=}, {len(trace)=}')
 
     # if you want to have a fix and same number of samples for each type of transition
@@ -492,11 +400,9 @@ if __name__ == "__main__":
                 for s in samples_map[k]:
                     sampled_trace.append(s)
 
-        save_trace_to_json(trace=sampled_trace, filename='demos/sampled_demo.json')
+        save_trace_to_json(trace=sampled_trace,
+                           filename='demos/sampled_demo.json')
     save_trace_to_json(trace=trace, filename='demos/full_demo.json')
- 
-
-    
 
     # HACKY CHEATY repair using GT
     violation_found = False
@@ -505,99 +411,19 @@ if __name__ == "__main__":
     random.shuffle(trace)
     for i, s in enumerate(trace):
         gt_action = policy_ground_truth(s)
-        if s.state['output']['value'] !=  gt_action:
+        if s.state['output']['value'] != gt_action:
             cex_cnt += 1
             violation_found = True
             print('State BEFORE repair:')
             print(pretty_str_state(state=s, iter=i))
-            print ("GT prediction: ", gt_action)
+            print("GT prediction: ", gt_action)
             s.state['output']['value'] = gt_action
             repaired_samples_json.append(s.state)
             print('State AFTER repair:')
             print(pretty_str_state(state=s, iter=i))
             # only one state should be repaired per iteration
-            if cex_cnt > 30:
+            if cex_cnt > 10:
                 break
-
-    # if POLICY == policy_ldips:
-    #     print ('automated repair suggestion')
-    #     # check spec_1 and suggest a repairs
-    #     i, sat = find_spec_1_breakpoint(trace)
-    #     if not sat:
-    #         violation_found = True
-    #         print('*'*110)
-    #         print("Found violation of spec 1!\n")
-    #         sample = trace[i]
-    #         print('State BEFORE repair:')
-    #         print(pretty_str_state(state=sample, iter=i))
-    #         if sample.state['output']['value'] == "SLOWER":
-    #             sample.state['output']['value'] = "FASTER"
-    #         elif sample.state['output']['value'] == "FASTER":
-    #             sample.state['output']['value'] = "SLOWER"
-    #         else:
-    #             raise Exception("Invalid action")
-    #         print('State AFTER repair:')
-    #         print(pretty_str_state(state=sample, iter=i))
-
-    #         # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
-    #         # note that this is not used in the learning algorithm in any ways
-    #         print('Prediction of the ground truth policy: ', policy_ground_truth(
-    #             sample), '  --  ', 'Consistent with repair?', policy_ground_truth(sample) == sample.state['output']['value'])
-    #         # this should be removed XXX
-    #         if policy_ground_truth(sample) == sample.state['output']['value']:
-    #             repaired_samples_json.append(sample.state)
-
-    #     # check spec_2 and suggest a repair
-    #     i, sat = find_spec_2_breakpoint(trace)
-    #     if not sat:
-    #         violation_found = True
-    #         print('*'*110)
-    #         print("Found violation of spec 2!\n")
-    #         sample = trace[i]
-    #         print('State BEFORE repair:')
-    #         print(pretty_str_state(state=sample, iter=i))
-    #         if sample.state['output']['value'] == "SLOWER":
-    #             sample.state['output']['value'] = "FASTER"
-    #         elif sample.state['output']['value'] == "FASTER":
-    #             sample.state['output']['value'] = "SLOWER"
-    #         else:
-    #             raise Exception("Invalid action")
-    #         print('State AFTER repair:')
-    #         print(pretty_str_state(state=sample, iter=i))
-            
-    #         # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
-    #         # note that this is not used in the learning algorithm in any ways
-    #         print('Prediction of the ground truth policy: ', policy_ground_truth(
-    #             sample), '  --  ', 'Consistent with repair?', policy_ground_truth(sample) == sample.state['output']['value'])
-    #         # this should be removed XXX
-    #         if policy_ground_truth(sample) == sample.state['output']['value']:
-    #             repaired_samples_json.append(sample.state)
-
-    #     # check spec_3 and suggest a repair
-    #     i, sat = find_spec_3_breakpoint(trace)
-    #     if not sat:
-    #         violation_found = True
-    #         print('*'*110)
-    #         print("Found violation of spec 3!\n")
-    #         sample = trace[i]
-    #         print('State BEFORE repair:')
-    #         print(pretty_str_state(state=sample, iter=i))
-    #         if sample.state['output']['value'] == "SLOWER":
-    #             sample.state['output']['value'] = "FASTER"
-    #         elif sample.state['output']['value'] == "FASTER":
-    #             sample.state['output']['value'] = "SLOWER"
-    #         else:
-    #             raise Exception("Invalid action")
-    #         print('State AFTER repair:')
-    #         print(pretty_str_state(state=sample, iter=i))
-
-    #         # hack : just to test our repair strategy, let's see what the ground truth policy outputs for this state:
-    #         # note that this is not used in the learning algorithm in any ways
-    #         print('Prediction of the ground truth policy: ', policy_ground_truth(
-    #             sample), '  --  ', 'Consistent with repair?', policy_ground_truth(sample) == sample.state['output']['value'])
-    #         # this should be removed XXX
-    #         if policy_ground_truth(sample) == sample.state['output']['value']:
-    #             repaired_samples_json.append(sample.state)
 
     print('-'*110)
     if violation_found:
