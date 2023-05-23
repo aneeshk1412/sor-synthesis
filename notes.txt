@@ -1,0 +1,18 @@
+INITIALIZATION:
+To run the gt and generate the initial demo samples 
+/bin/python /home/krahmani/HighwayEnv/sor_synthesis/highway_one_lane_simulator.py gt
+
+Copy the sampled demo to the file that will be copied to the container
+cp demos/sampled_demo.json pips/highway.json
+
+CEGIS:
+Run the ldips generated program (must be saved in ./pips/learned_policy.py) and generate repaired samples (to be stored in demos/repaired_samples.json)
+/bin/python /home/krahmani/HighwayEnv/sor_synthesis/highway_one_lane_simulator.py ldips 
+
+# Append the repaired samples (stored in demos/repaired_samples.json) to the main sample file (pips/highway.json) 
+python script/copy_repaierd_samples.py
+
+# copy the main sample file to the container and run ldips inside container, then translate the learned policy and copy it to pips/learned_policy.py
+./script/run_ldips.sh
+
+
