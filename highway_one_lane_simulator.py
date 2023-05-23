@@ -224,15 +224,15 @@ def pretty_str_state(state, iter):
     return result
 
 
-OTHER_SPEED_RANGE_LOW = 28  # [m/s]
-OTHER_SPEED_RANGE_HIGH = 33  # [m/s]
+OTHER_SPEED_RANGE_LOW = 36  # [m/s]
+OTHER_SPEED_RANGE_HIGH = 36  # [m/s]
 OTHER_SPEED_INTERVAL = 1  # [m/s]
 
-EGO_SPEED_RANGE_LOW = 25  # [m/s]
-EGO_SPEED_RANGE_HIGH = 35  # [m/s]
+EGO_SPEED_RANGE_LOW = 34  # [m/s]
+EGO_SPEED_RANGE_HIGH = 38  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
-DURATION = 45  # [s]
+DURATION = 60  # [s]
 
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
@@ -301,6 +301,7 @@ def run_simulation(policy, spec, show=False, env=None):
     action = "SLOWER"
     action_idx = env.action_type.actions_indexes[action]
     count = 0
+    stable_cnt = 0
     while True:
         count += 1
         obs, reward, done, truncated, info = env.step(action_idx)
@@ -314,11 +315,17 @@ def run_simulation(policy, spec, show=False, env=None):
         sample = compute_ldips_sample(obs, prev_action, action)
         trace.append(sample)
 
+        # check if stability has been achieved
+        if state.get("x_diff")<32 and state.get("x_diff")> 28:
+            stable_cnt += 1
+        else:
+            stable_cnt = 0
+
         if show:
             env.render()
         if done:
             break
-        if truncated or state.get("x_diff") < 0:
+        if truncated or state.get("x_diff") < 0 or stable_cnt > 100:
             # Corner case when vehicle in front goes out of view
             # remove last element from history
             trace.pop()
