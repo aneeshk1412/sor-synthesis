@@ -5,6 +5,7 @@ import os
 import numpy as np
 import gymnasium as gym
 from matplotlib import pyplot as plt
+import matplotlib.patches as mpatches
 
 from highway_env.vehicle.behavior import IDMVehicle
 from highway_env.road.road import Road, Route
@@ -143,7 +144,7 @@ def save_trace_to_json(trace, filename="demo.json"):
         f.write(trace_json)
 
 
-def plot_series(policy, trace, init_dist, init_v_diff):
+def plot_series(policy, trace, init_dist, init_v_diff, second_trace):
     directory = 'plots/' + str(policy.__name__) + '/'
     if not os.path.exists(directory):
         os.makedirs(directory)
@@ -151,11 +152,25 @@ def plot_series(policy, trace, init_dist, init_v_diff):
     # plot x diff
     plt.clf()
     x_diff_series = [x.state['x_diff']['value'] for x in trace]
+    other_diff_series = [x.state['x_diff']['value'] for x in second_trace]
+
     # Create x-axis values ranging from 0 to the length of the data
-    x = range(len(x_diff_series))
+    if second_trace:
+        x = range(min(len(x_diff_series), len(other_diff_series)))
+    else:
+        x = range(len(x_diff_series))
     actions = [x.state['output']['value'] for x in trace]
     # Plot the sorted data as a line chart
     plt.plot(x, x_diff_series)
+    if second_trace:
+        plt.plot(x, other_diff_series[:len(x)])
+        print (f'{second_trace[0].get("x_diff")}', f'{trace[0].get("x_diff")}')
+        print (f'{second_trace[0].get("v_diff")}', f'{trace[0].get("v_diff")}')
+    
+        # Define the legend
+        plt.legend(labels=['LDIPS','GT'], loc='upper right', fontsize='small')
+    
+
 
     # Add labels and title to the chart
     plt.xlabel('Time (100 ms)')
@@ -272,10 +287,12 @@ config = {
 }
 
 
-def run_simulation(policy, spec, show=False):
-    env = gym.make("highway-v0", render_mode="rgb_array")
-    env.configure(config)
-    env.config["vehicles_density"] = random.choice(vehicle_densities_choices)
+def run_simulation(policy, spec, show=False, env=None):
+    if not env:
+        env = gym.make("highway-v0", render_mode="rgb_array")
+        env.configure(config)
+        env.config["vehicles_density"] = random.choice(
+            vehicle_densities_choices)
     env.reset()
     trace = []
     sat = True
@@ -309,7 +326,7 @@ def run_simulation(policy, spec, show=False):
         sat = False
     if show:
         plt.imshow(env.render())
-    return sat, trace
+    return sat, trace, env
 
 
 def policy_ground_truth(state):
@@ -375,62 +392,62 @@ if __name__ == "__main__":
         print("Usage: python highway_one_lane_simulator.py <policy>")
         sys.exit(1)
 
-    if sys.argv[1] == 'ldips':
-        POLICY = policy_ldips
-    elif sys.argv[1] == 'gt':
-        POLICY = policy_ground_truth
+    if sys.argv[1] == 'gt':
+        sat, trace, _ = run_simulation(policy_ground_truth, spec_1, show=True)
+        plot_series(policy=policy_ground_truth, trace=trace, init_dist=trace[0].get(
+            "x_diff"), init_v_diff=trace[0].get("v_diff"), second_trace=None)
+        # if you want to have a fix and same number of samples for each type of transition
+        if SAMPLES_NUMBER_PER_TRANSITION > 0:
+            sampled_trace = []
+            samples_map = analyze_trace(trace=trace)
+            for k in samples_map.keys():
+                if len(samples_map[k]) >= SAMPLES_NUMBER_PER_TRANSITION:
+                    for s in random.sample(samples_map[k], SAMPLES_NUMBER_PER_TRANSITION):
+                        sampled_trace.append(s)
+                else:
+                    for s in samples_map[k]:
+                        sampled_trace.append(s)
+            save_trace_to_json(trace=sampled_trace,
+                               filename='demos/sampled_demo.json')
+            save_trace_to_json(trace=trace, filename='demos/full_demo.json')
+    ########
+    elif sys.argv[1] == 'ldips':
+        sat, trace_ldips, env = run_simulation(policy_ldips, spec_1, show=True)
+        _, trace_gt, _ = run_simulation(
+            policy_ldips, spec_1, show=True, env=env)
+        plot_series(policy=policy_ldips, trace=trace_ldips, init_dist=trace_ldips[0].get(
+            "x_diff"), init_v_diff=trace_ldips[0].get("v_diff"), second_trace=trace_gt)
+        # save_trace_to_json(trace=trace, filename='demos/full_demo.json')
+
+        # HACKY CHEATY repair using GT
+        violation_found = False
+        repaired_samples_json = []
+        cex_cnt = 0
+        random.shuffle(trace_ldips)
+        for i, s in enumerate(trace_ldips):
+            gt_action = policy_ground_truth(s)
+            if s.state['output']['value'] != gt_action:
+                cex_cnt += 1
+                violation_found = True
+                #print('State BEFORE repair:')
+                #print(pretty_str_state(state=s, iter=i))
+                #print("GT prediction: ", gt_action)
+                s.state['output']['value'] = gt_action
+                repaired_samples_json.append(s.state)
+                #print('State AFTER repair:')
+                #print(pretty_str_state(state=s, iter=i))
+                # only one state should be repaired per iteration
+                if cex_cnt > 10:
+                    break
+
+        print('-'*110)
+        if violation_found:
+            #print('All repaired samples:\n')
+            #print(repaired_samples_json)
+            # write the repaiered samples into a file
+            with open('demos/repaired_samples.json', "w") as f:
+                f.write(json.dumps(repaired_samples_json))
+        else:
+            print('No violation was found!')
     else:
         raise Exception('policy should be either gt or ldips')
-
-    sat, trace = run_simulation(POLICY, spec_1, show=True)
-
-    plot_series(policy=POLICY, trace=trace, init_dist=trace[0].get(
-        "x_diff"), init_v_diff=trace[0].get("v_diff"))
-    print(f'{sat=}, {len(trace)=}')
-
-    # if you want to have a fix and same number of samples for each type of transition
-    if SAMPLES_NUMBER_PER_TRANSITION > 0:
-        sampled_trace = []
-        samples_map = analyze_trace(trace=trace)
-        for k in samples_map.keys():
-            if len(samples_map[k]) >= SAMPLES_NUMBER_PER_TRANSITION:
-                for s in random.sample(samples_map[k], SAMPLES_NUMBER_PER_TRANSITION):
-                    sampled_trace.append(s)
-            else:
-                for s in samples_map[k]:
-                    sampled_trace.append(s)
-
-        save_trace_to_json(trace=sampled_trace,
-                           filename='demos/sampled_demo.json')
-    save_trace_to_json(trace=trace, filename='demos/full_demo.json')
-
-    # HACKY CHEATY repair using GT
-    violation_found = False
-    repaired_samples_json = []
-    cex_cnt = 0
-    random.shuffle(trace)
-    for i, s in enumerate(trace):
-        gt_action = policy_ground_truth(s)
-        if s.state['output']['value'] != gt_action:
-            cex_cnt += 1
-            violation_found = True
-            print('State BEFORE repair:')
-            print(pretty_str_state(state=s, iter=i))
-            print("GT prediction: ", gt_action)
-            s.state['output']['value'] = gt_action
-            repaired_samples_json.append(s.state)
-            print('State AFTER repair:')
-            print(pretty_str_state(state=s, iter=i))
-            # only one state should be repaired per iteration
-            if cex_cnt > 10:
-                break
-
-    print('-'*110)
-    if violation_found:
-        print('All repaired samples:\n')
-        print(repaired_samples_json)
-        # write the repaiered samples into a file
-        with open('demos/repaired_samples.json', "w") as f:
-            f.write(json.dumps(repaired_samples_json))
-    else:
-        print('No violation was found!')
