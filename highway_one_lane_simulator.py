@@ -152,15 +152,16 @@ def plot_series(policy, trace_1, init_dist, init_v_diff, trace_2):
     # plot x diff
     plt.clf()
     diff_series_1 = [x.state['x_diff']['value'] for x in trace_1]
-    diff_series_2 = [x.state['x_diff']['value'] for x in trace_2]
-
+    
     # Create x-axis values ranging from 0 to the length of the data
     x1 = range(len(diff_series_1))
-    x2 = range(len(diff_series_2))
+
     actions = [x.state['output']['value'] for x in trace_1]
     # Plot the sorted data as a line chart
     
     if trace_2:
+        diff_series_2 = [x.state['x_diff']['value'] for x in trace_2]
+        x2 = range(len(diff_series_2))
         plt.plot(x1, diff_series_1, label='ldips')
         plt.plot(x2, diff_series_2, label='gt')
         print (f'{trace_2[0].get("x_diff")}', f'{trace_1[0].get("x_diff")}')
@@ -224,12 +225,12 @@ def pretty_str_state(state, iter):
     return result
 
 
-OTHER_SPEED_RANGE_LOW = 36  # [m/s]
-OTHER_SPEED_RANGE_HIGH = 36  # [m/s]
+OTHER_SPEED_RANGE_LOW = 30  # [m/s]
+OTHER_SPEED_RANGE_HIGH = 38  # [m/s]
 OTHER_SPEED_INTERVAL = 1  # [m/s]
 
-EGO_SPEED_RANGE_LOW = 34  # [m/s]
-EGO_SPEED_RANGE_HIGH = 38  # [m/s]
+EGO_SPEED_RANGE_LOW = 28  # [m/s]
+EGO_SPEED_RANGE_HIGH = 40  # [m/s]
 EGO_SPEED_INTERVAL = 1  # [m/s]
 
 DURATION = 60  # [s]
@@ -237,9 +238,9 @@ DURATION = 60  # [s]
 DESIRED_DISTANCE = 30  # [m] Desired distance between ego and other vehicle
 
 # [m] Minimum distance between ego and other vehicle in initial state
-MIN_DIST = 20
+MIN_DIST = 10
 # [m] Maximum distance between ego and other vehicle in initial state
-MAX_DIST = 20
+MAX_DIST = 10
 D_CRASH = 5  # [m] Distance at which crash occurs in simulation
 
 # set this to any value n>0 if you want to sample n elements for each transition type (e.g. SLOWER->FASTER) to be included in the demo.json
@@ -290,11 +291,8 @@ config = {
 
 
 def run_simulation(policy, spec, show=False, env=None):
-    if not env:
-        env = gym.make("highway-v0", render_mode="rgb_array")
-    env.configure(config)    
-    env.configure(config)
-    env.reset()
+    print (policy, env)
+
     trace = []
     sat = True
 
@@ -334,7 +332,7 @@ def run_simulation(policy, spec, show=False, env=None):
         sat = False
     if show:
         plt.imshow(env.render())
-    return sat, trace, env
+    return sat, trace
 
 
 def policy_ground_truth(state):
@@ -401,7 +399,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if sys.argv[1] == 'gt':
-        sat, trace, _ = run_simulation(policy_ground_truth, spec_1, show=True)
+        env = gym.make("highway-v0", render_mode="rgb_array")
+        env.configure(config)    
+        env.reset()
+        sat, trace = run_simulation(policy_ground_truth, spec_1, show=True, env=env)
         plot_series(policy=policy_ground_truth, trace_1=trace, init_dist=trace[0].get(
             "x_diff"), init_v_diff=trace[0].get("v_diff"), trace_2=None)
         # if you want to have a fix and same number of samples for each type of transition
@@ -420,9 +421,13 @@ if __name__ == "__main__":
             save_trace_to_json(trace=trace, filename='demos/full_demo.json')
     ########
     elif sys.argv[1] == 'ldips':
-        sat, trace_ldips, env = run_simulation(policy_ldips, spec_1, show=True)
-        _, trace_gt, _ = run_simulation(
-            policy_ldips, spec_1, show=True, env=env)
+        env = gym.make("highway-v0", render_mode="rgb_array")
+        env.configure(config)    
+        env.reset()
+        sat, trace_ldips = run_simulation(policy_ldips, spec_1, show=True, env=env)
+        env.reset()
+        _, trace_gt = run_simulation(policy_ground_truth, spec_1, show=True, env=env)
+        
         plot_series(policy=policy_ldips, trace_1=trace_ldips, init_dist=trace_ldips[0].get(
             "x_diff"), init_v_diff=trace_ldips[0].get("v_diff"), trace_2=trace_gt)
         # save_trace_to_json(trace=trace, filename='demos/full_demo.json')
@@ -431,10 +436,17 @@ if __name__ == "__main__":
         violation_found = False
         repaired_samples_json = []
         cex_cnt = 0
+        fast_to_slow_repair = 0
+        slow_to_fast_repair = 0
         random.shuffle(trace_ldips)
         for i, s in enumerate(trace_ldips):
             gt_action = policy_ground_truth(s)
             if s.state['output']['value'] != gt_action:
+                if gt_action == 'FASTER':
+                    slow_to_fast_repair += 1
+                else:
+                    fast_to_slow_repair += 1
+
                 cex_cnt += 1
                 violation_found = True
                 #print('State BEFORE repair:')
@@ -445,13 +457,14 @@ if __name__ == "__main__":
                 #print('State AFTER repair:')
                 #print(pretty_str_state(state=s, iter=i))
                 # only one state should be repaired per iteration
-                if cex_cnt > 10:
+                if cex_cnt > 20:
                     break
 
         print('-'*110)
         if violation_found:
             #print('All repaired samples:\n')
             #print(repaired_samples_json)
+            print ('Repaired sample stats:', f'{fast_to_slow_repair=}', f'{slow_to_fast_repair=}')
             # write the repaiered samples into a file
             with open('demos/repaired_samples.json', "w") as f:
                 f.write(json.dumps(repaired_samples_json))
