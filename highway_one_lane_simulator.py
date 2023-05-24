@@ -144,25 +144,28 @@ def save_trace_to_json(trace, filename="demo.json"):
         f.write(trace_json)
 
 
-def plot_series(policy, trace_1, init_dist, init_v_diff, trace_2):
+def plot_series(policy, trace_1, trace_2):
+    # the initial states in both experiments must be the same
+    assert trace_1[0].state['x_diff']['value'] == trace_2[0].state['x_diff']['value']
+    assert trace_1[0].state['v_diff']['value'] == trace_2[0].state['v_diff']['value']
+    init_v_diff = trace_1[0].state['v_diff']['value']
+    init_dist = trace_1[0].state['x_diff']['value']
     directory = 'plots/' + str(policy.__name__) + '/'
     if not os.path.exists(directory):
         os.makedirs(directory)
 
     # plot x diff
     plt.clf()
-    diff_series_1 = [trace_1[0].get('x_diff')]
-    diff_series_1.extend ([x.state['x_diff']['value'] for x in trace_1[1:]])
+    diff_series_1 = [x.state['x_diff']['value'] for x in trace_1]
 
     # Create x-axis values ranging from 0 to the length of the data
     x1 = range(len(diff_series_1))
 
-    actions = [x.state['output']['value'] for x in trace_1[1:]]
+    actions = [x.state['output']['value'] for x in trace_1]
     # Plot the sorted data as a line chart
 
     if trace_2:
-        diff_series_2 = [trace_2[0].get('x_diff')]
-        diff_series_2.extend([x.state['x_diff']['value'] for x in trace_2[1:]])
+        diff_series_2 = [x.state['x_diff']['value'] for x in trace_2]
         x2 = range(len(diff_series_2))
         plt.plot(x1, diff_series_1, label='ldips')
         plt.plot(x2, diff_series_2, label='gt')
@@ -290,16 +293,17 @@ config = {
 }
 
 
-def run_simulation(policy, spec, show=False, env=None):
+def run_simulation(policy, spec, show=False, env=None, init_obs=None):
     print(policy, env)
-
     sat = True
-
-    action = "SLOWER"  # let's assume the first action is always 'SLOWER'
-    action_idx = env.action_type.actions_indexes[action]
+    
     count = 0
     stable_cnt = 0
-    trace = [{'x_diff': 10.69, 'v_diff': 20.69}]
+    assert init_obs
+    action = 'FASTER'  # let's assume the first action is always 'FASTER'
+    init_state = compute_ldips_sample(init_obs[0], None, action)
+    action_idx = env.action_type.actions_indexes[action]
+    trace = [init_state]
     while True:
         count += 1
         obs, reward, done, truncated, info = env.step(action_idx)
@@ -401,11 +405,10 @@ if __name__ == "__main__":
     if sys.argv[1] == 'gt':
         env = gym.make("highway-v0", render_mode="rgb_array")
         env.configure(config)
-        env.reset()
+        init_obs=env.reset()
         sat, trace = run_simulation(
-            policy_ground_truth, spec_1, show=True, env=env)
-        plot_series(policy=policy_ground_truth, trace_1=trace, init_dist=trace[0].get(
-            "x_diff"), init_v_diff=trace[0].get("v_diff"), trace_2=None)
+            policy_ground_truth, spec_1, show=True, env=env, init_obs=init_obs)
+        plot_series(policy=policy_ground_truth, trace_1=trace, trace_2=None)
         # we don't need the first element other than for plotting purposes
         trace.pop()
 
@@ -427,15 +430,14 @@ if __name__ == "__main__":
     elif sys.argv[1] == 'ldips':
         env = gym.make("highway-v0", render_mode="rgb_array")
         env.configure(config)
-        env.reset()
+        init_obs = env.reset()
         sat, trace_ldips = run_simulation(
-            policy_ldips, spec_1, show=True, env=env)
+            policy_ldips, spec_1, show=True, env=env, init_obs=init_obs)
         env.reset()
         _, trace_gt = run_simulation(
-            policy_ground_truth, spec_1, show=True, env=env)
+            policy_ground_truth, spec_1, show=True, env=env, init_obs=init_obs)
 
-        plot_series(policy=policy_ldips, trace_1=trace_ldips, init_dist=trace_ldips[0].get(
-            "x_diff"), init_v_diff=trace_ldips[0].get("v_diff"), trace_2=trace_gt)
+        plot_series(policy=policy_ldips, trace_1=trace_ldips, trace_2=trace_gt)
         # save_trace_to_json(trace=trace, filename='demos/full_demo.json')
         
         # we don't need the first element other than for plotting purposes
@@ -447,8 +449,9 @@ if __name__ == "__main__":
         cex_cnt = 0
         fast_to_slow_repair = 0
         slow_to_fast_repair = 0
-        random.shuffle(trace_ldips)
-        for i, s in enumerate(trace_ldips):
+        trace_ldips_popped = trace_ldips[1:]
+        random.shuffle(trace_ldips_popped)
+        for i, s in enumerate(trace_ldips_popped):
             gt_action = policy_ground_truth(s)
             if s.state['output']['value'] != gt_action:
                 if gt_action == 'FASTER':
@@ -466,7 +469,7 @@ if __name__ == "__main__":
                 # print('State AFTER repair:')
                 # print(pretty_str_state(state=s, iter=i))
                 # only one state should be repaired per iteration
-                if cex_cnt >= 20:
+                if cex_cnt >= 30:
                     break
 
         print('-'*110)
