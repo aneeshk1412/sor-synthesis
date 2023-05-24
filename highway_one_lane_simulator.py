@@ -151,28 +151,29 @@ def plot_series(policy, trace_1, init_dist, init_v_diff, trace_2):
 
     # plot x diff
     plt.clf()
-    diff_series_1 = [x.state['x_diff']['value'] for x in trace_1]
-    
+    diff_series_1 = [trace_1[0].get('x_diff')]
+    diff_series_1.extend ([x.state['x_diff']['value'] for x in trace_1[1:]])
+
     # Create x-axis values ranging from 0 to the length of the data
     x1 = range(len(diff_series_1))
 
-    actions = [x.state['output']['value'] for x in trace_1]
+    actions = [x.state['output']['value'] for x in trace_1[1:]]
     # Plot the sorted data as a line chart
-    
+
     if trace_2:
-        diff_series_2 = [x.state['x_diff']['value'] for x in trace_2]
+        diff_series_2 = [trace_2[0].get('x_diff')]
+        diff_series_2.extend([x.state['x_diff']['value'] for x in trace_2[1:]])
         x2 = range(len(diff_series_2))
         plt.plot(x1, diff_series_1, label='ldips')
         plt.plot(x2, diff_series_2, label='gt')
-        print (f'{trace_2[0].get("x_diff")}', f'{trace_1[0].get("x_diff")}')
-        print (f'{trace_2[0].get("v_diff")}', f'{trace_1[0].get("v_diff")}')
+        print(f'{trace_2[0].get("x_diff")}', f'{trace_1[0].get("x_diff")}')
+        print(f'{trace_2[0].get("v_diff")}', f'{trace_1[0].get("v_diff")}')
     else:
-        plt.plot(x1, diff_series_1, label='GT') # if the second trace is not given then this is a simulation of only gt
-        
-    # Add the legend    
-    plt.legend(loc='upper right', fontsize='small')
-    
+        # if the second trace is not given then this is a simulation of only gt
+        plt.plot(x1, diff_series_1, label='GT')
 
+    # Add the legend
+    plt.legend(loc='upper right')
 
     # Add labels and title to the chart
     plt.xlabel('Time (100 ms)')
@@ -200,7 +201,6 @@ def plot_series(policy, trace_1, init_dist, init_v_diff, trace_2):
         # Add the colored rectangle
         # Adjust ymin and ymax values for rectangle height
         plt.axvspan(start, end, ymin=0, ymax=0.05, facecolor=color, alpha=0.8)
-
     # Save the chart as an image file
     plt.savefig(directory+'distance.png')
 
@@ -291,15 +291,15 @@ config = {
 
 
 def run_simulation(policy, spec, show=False, env=None):
-    print (policy, env)
+    print(policy, env)
 
-    trace = []
     sat = True
 
-    action = "SLOWER"
+    action = "SLOWER"  # let's assume the first action is always 'SLOWER'
     action_idx = env.action_type.actions_indexes[action]
     count = 0
     stable_cnt = 0
+    trace = [{'x_diff': 10.69, 'v_diff': 20.69}]
     while True:
         count += 1
         obs, reward, done, truncated, info = env.step(action_idx)
@@ -314,7 +314,7 @@ def run_simulation(policy, spec, show=False, env=None):
         trace.append(sample)
 
         # check if stability has been achieved
-        if state.get("x_diff")<32 and state.get("x_diff")> 28:
+        if state.get("x_diff") < 32 and state.get("x_diff") > 28:
             stable_cnt += 1
         else:
             stable_cnt = 0
@@ -400,11 +400,15 @@ if __name__ == "__main__":
 
     if sys.argv[1] == 'gt':
         env = gym.make("highway-v0", render_mode="rgb_array")
-        env.configure(config)    
+        env.configure(config)
         env.reset()
-        sat, trace = run_simulation(policy_ground_truth, spec_1, show=True, env=env)
+        sat, trace = run_simulation(
+            policy_ground_truth, spec_1, show=True, env=env)
         plot_series(policy=policy_ground_truth, trace_1=trace, init_dist=trace[0].get(
             "x_diff"), init_v_diff=trace[0].get("v_diff"), trace_2=None)
+        # we don't need the first element other than for plotting purposes
+        trace.pop()
+
         # if you want to have a fix and same number of samples for each type of transition
         if SAMPLES_NUMBER_PER_TRANSITION > 0:
             sampled_trace = []
@@ -422,15 +426,20 @@ if __name__ == "__main__":
     ########
     elif sys.argv[1] == 'ldips':
         env = gym.make("highway-v0", render_mode="rgb_array")
-        env.configure(config)    
+        env.configure(config)
         env.reset()
-        sat, trace_ldips = run_simulation(policy_ldips, spec_1, show=True, env=env)
+        sat, trace_ldips = run_simulation(
+            policy_ldips, spec_1, show=True, env=env)
         env.reset()
-        _, trace_gt = run_simulation(policy_ground_truth, spec_1, show=True, env=env)
-        
+        _, trace_gt = run_simulation(
+            policy_ground_truth, spec_1, show=True, env=env)
+
         plot_series(policy=policy_ldips, trace_1=trace_ldips, init_dist=trace_ldips[0].get(
             "x_diff"), init_v_diff=trace_ldips[0].get("v_diff"), trace_2=trace_gt)
         # save_trace_to_json(trace=trace, filename='demos/full_demo.json')
+        
+        # we don't need the first element other than for plotting purposes
+        trace_ldips.pop()
 
         # HACKY CHEATY repair using GT
         violation_found = False
@@ -449,22 +458,23 @@ if __name__ == "__main__":
 
                 cex_cnt += 1
                 violation_found = True
-                #print('State BEFORE repair:')
-                #print(pretty_str_state(state=s, iter=i))
-                #print("GT prediction: ", gt_action)
+                # print('State BEFORE repair:')
+                # print(pretty_str_state(state=s, iter=i))
+                # print("GT prediction: ", gt_action)
                 s.state['output']['value'] = gt_action
                 repaired_samples_json.append(s.state)
-                #print('State AFTER repair:')
-                #print(pretty_str_state(state=s, iter=i))
+                # print('State AFTER repair:')
+                # print(pretty_str_state(state=s, iter=i))
                 # only one state should be repaired per iteration
-                if cex_cnt > 20:
+                if cex_cnt >= 20:
                     break
 
         print('-'*110)
         if violation_found:
-            #print('All repaired samples:\n')
-            #print(repaired_samples_json)
-            print ('Repaired sample stats:', f'{fast_to_slow_repair=}', f'{slow_to_fast_repair=}')
+            # print('All repaired samples:\n')
+            # print(repaired_samples_json)
+            print('Repaired sample stats:',
+                  f'{fast_to_slow_repair=}', f'{slow_to_fast_repair=}')
             # write the repaiered samples into a file
             with open('demos/repaired_samples.json', "w") as f:
                 f.write(json.dumps(repaired_samples_json))
