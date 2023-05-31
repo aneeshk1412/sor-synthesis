@@ -46,3 +46,6 @@ class LDIPSSample(object):
 
     def set(self, key, value):
         self.sample[key]["value"] = value
+
+    def __hash__(self) -> int:
+        return hash(tuple(self.sample[k]["value"] for k in self.sample))
